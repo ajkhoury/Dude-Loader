@@ -28,6 +28,7 @@ public:
 
 private:
 	void SetLibraryPath(const TCHAR* path, UINT& currentIndex);
+	void SetLibraryPathW(const TCHAR* path, UINT& currentIndex);
 
 	PBYTE SearchMemory(PBYTE Start, SIZE_T Size, PBYTE Buffer, SIZE_T BufLen);
 	ATOM RegisterLoaderClass();

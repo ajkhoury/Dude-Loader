@@ -26,10 +26,10 @@
     <ClInclude Include="ProcessUtils.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="DudeLoader.h">
+    <ClInclude Include="Loader.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="Loader.h">
+    <ClInclude Include="Log.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
