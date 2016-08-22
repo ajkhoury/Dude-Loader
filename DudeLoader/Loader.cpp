@@ -244,6 +244,8 @@ void Loader::SetLibraryPath(const TCHAR * path, UINT & currentIndex)
 		SetWindowLongPtr(m_hWnd, currentIndex * sizeof(LONG_PTR), *(LONG_PTR*)ptr); currentIndex++;
 	}
 
+	delete[] finalDllLocation;
+
 	SetWindowLongPtr(m_hWnd, currentIndex * sizeof(LONG_PTR), (LONG_PTR)0); currentIndex++;
 }
 
