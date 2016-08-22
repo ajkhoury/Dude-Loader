@@ -1,6 +1,10 @@
 #include "Loader.h"
+
 #include "ProcessUtils.h"
+
+#include <io.h>
 #include <stdexcept>
+
 
 ULONG Loader::s_Magics[NUM_OF_MAGICS] = { 0xABABABAB, 0xCDCDCDCD, 0xABABABAB, 0xCDCDCDCD };
 
