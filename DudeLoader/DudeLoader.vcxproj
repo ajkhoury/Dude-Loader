@@ -119,6 +119,7 @@
     <ClCompile Include="Loader.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="apfnDispatch.h" />
     <ClInclude Include="Loader.h" />
     <ClInclude Include="Log.h" />
     <ClInclude Include="ProcessUtils.h" />

